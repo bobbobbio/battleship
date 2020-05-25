@@ -2,7 +2,7 @@
 
 use battleship_game::{
     client::blocking::BlockingGameClient, row_to_letter, server::blocking::BlockingGameServer,
-    BattleField, Cell, Direction, Game, Location, Play, Player, PlayerId, Ship, ShipId,
+    BattleField, Cell, Direction, Game, GameId, Location, Play, Player, PlayerId, Ship, ShipId,
 };
 use log::info;
 use std::collections::HashMap;
@@ -148,7 +148,7 @@ fn print_battlefield(player: &Player) {
 }
 
 fn local_game() -> Result<()> {
-    let mut game = Game::new();
+    let mut game = Game::new(GameId::default());
     let player1_id = game.add_player("Player 1").unwrap();
     let player2_id = game.add_player("Player 2").unwrap();
 
@@ -189,23 +189,25 @@ fn server() -> Result<()> {
     Ok(())
 }
 
-fn client(address: &str) -> Result<()> {
+fn client(address: &str, game_id: Option<GameId>) -> Result<()> {
     let conn = net::TcpStream::connect(address)?;
 
     let name: String = ask("name: ")?;
-    let mut game = BlockingGameClient::new(conn, &name)?;
+    let mut game = BlockingGameClient::new(conn, &name, game_id)?;
+
+    println!("joined game {}", game.game_id());
 
     let player_id = game.player_id();
     place_ships(&mut game, player_id)?;
 
-    print_battlefield(game.player().unwrap());
+    print_battlefield(game.get_player(player_id).unwrap());
 
     println!("waiting for other player");
     if let Some(result) = game.wait_for_turn()? {
         println!("{}", result);
     }
 
-    print_battlefield(game.player().unwrap());
+    print_battlefield(game.get_player(player_id).unwrap());
 
     let other_player_id = game.other_player_ids()[0];
 
@@ -245,7 +247,11 @@ fn main() -> Result<()> {
     match iter.next() {
         None => local_game()?,
         Some("server") => server()?,
-        Some("client") => client(iter.next().unwrap())?,
+        Some("client") => {
+            let address = iter.next().unwrap();
+            let game_id = iter.next().map(|s| s.parse().unwrap());
+            client(address, game_id)?;
+        }
         Some(s) => println!("invalid command {}", s),
     }
 

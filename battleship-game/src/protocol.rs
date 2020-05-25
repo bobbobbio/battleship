@@ -1,18 +1,20 @@
-use super::{AttackResult, Direction, Location, PlayerId, ShipId};
+use super::{AttackResult, Direction, GameId, Location, PlayerId, ShipId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
-    AddPlayer(String),
+    AddPlayer(GameId, String),
+    CreateGame,
     PlaceShip(PlayerId, ShipId, Location, Direction),
     Advance(PlayerId, PlayerId, Location),
     WaitForTurn(PlayerId),
-    Winner,
+    Winner(GameId),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Response {
     AddPlayer(PlayerId),
+    CreateGame(GameId),
     Advance(Location, AttackResult),
     PlaceShip(ShipId, Location, Direction),
     WaitForTurn(Option<(Location, AttackResult)>, Vec<PlayerId>),

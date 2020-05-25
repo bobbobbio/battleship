@@ -12,8 +12,42 @@ pub mod server;
 
 const MAX_PLAYERS: usize = 2;
 
+#[derive(
+    Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash,
+)]
+pub struct GameId(usize);
+
+impl GameId {
+    fn incr(&self) -> Self {
+        Self(self.0.wrapping_add(1))
+    }
+}
+
+impl str::FromStr for GameId {
+    type Err = <usize as str::FromStr>::Err;
+    fn from_str(s: &str) -> result::Result<Self, Self::Err> {
+        Ok(Self(s.parse()?))
+    }
+}
+
+impl fmt::Display for GameId {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{}", self.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
-pub struct PlayerId(usize);
+pub struct PlayerId(GameId, usize);
+
+impl PlayerId {
+    pub fn game_id(&self) -> GameId {
+        self.0
+    }
+
+    fn incr(&self) -> Self {
+        Self(self.0, self.1.wrapping_add(1))
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Error {
@@ -23,6 +57,7 @@ pub enum Error {
     UnknownShipId(ShipId),
     ShipPlacementConflict(String),
     UnknownPlayer(PlayerId),
+    UnknownGame(GameId),
     NotYourTurn(String),
     TooManyPlayers,
     CommunicationError,
@@ -40,6 +75,7 @@ impl fmt::Display for Error {
                 write!(fmt, "unable to place ship, conflict with {}", name)
             }
             Self::UnknownPlayer(_) => write!(fmt, "unknown player"),
+            Self::UnknownGame(_) => write!(fmt, "unknown game"),
             Self::NotYourTurn(player) => write!(fmt, "it is not {}'s turn", player),
             Self::TooManyPlayers => write!(fmt, "too many players"),
             Self::InvalidSelfAttack => write!(fmt, "cannot attack yourself"),
@@ -51,13 +87,15 @@ impl fmt::Display for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub struct Game {
+    id: GameId,
     players: HashMap<PlayerId, Player>,
     current_turn: Option<PlayerId>,
 }
 
 impl Game {
-    pub fn new() -> Self {
+    pub fn new(id: GameId) -> Self {
         Self {
+            id,
             players: HashMap::new(),
             current_turn: None,
         }
@@ -68,8 +106,13 @@ impl Game {
             return Err(Error::TooManyPlayers);
         }
 
-        let max_id = self.players.keys().map(|p| p.0).max().unwrap_or(0);
-        let id = PlayerId(max_id.wrapping_add(1));
+        let max_id = self
+            .players
+            .keys()
+            .cloned()
+            .max()
+            .unwrap_or(PlayerId(self.id, 0));
+        let id = max_id.incr();
         self.give_player(id, Player::new(name));
         self.current_turn = Some(id);
         Ok(id)

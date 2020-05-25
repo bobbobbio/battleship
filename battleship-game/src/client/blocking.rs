@@ -3,7 +3,7 @@
 use super::{ClientResponse, GameClient};
 use crate::protocol::Response;
 use crate::{
-    AttackResult, Direction, Error as GameError, Location, Play, Player, PlayerId,
+    AttackResult, Direction, Error as GameError, GameId, Location, Play, Player, PlayerId,
     Result as GameResult, ShipId,
 };
 use serde::Deserialize;
@@ -43,12 +43,22 @@ pub struct BlockingGameClient {
 }
 
 impl BlockingGameClient {
-    pub fn new(mut connection: TcpStream, name: &str) -> Result<Self> {
+    pub fn new(mut connection: TcpStream, name: &str, game_id: Option<GameId>) -> Result<Self> {
         let mut game = GameClient::new();
+
+        if let Some(game_id) = game_id {
+            game.join_game(game_id);
+        } else {
+            serde_json::to_writer(&mut connection, &game.create_game())?;
+            let mut de = serde_json::Deserializer::from_reader(&mut connection);
+            game.handle_response(Response::deserialize(&mut de)?)?;
+        }
+
         serde_json::to_writer(&mut connection, &game.add_player(name))?;
 
         let mut de = serde_json::Deserializer::from_reader(&mut connection);
         game.handle_response(Response::deserialize(&mut de)?)?;
+
         Ok(Self { game, connection })
     }
 
@@ -84,6 +94,10 @@ impl BlockingGameClient {
 
     pub fn player_id(&self) -> PlayerId {
         self.game.player_id()
+    }
+
+    pub fn game_id(&self) -> GameId {
+        self.game.game_id()
     }
 }
 

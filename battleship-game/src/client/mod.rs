@@ -1,5 +1,5 @@
 use super::protocol::{Request, Response};
-use super::{AttackResult, Direction, Error, Location, Player, PlayerId, Result, ShipId};
+use super::{AttackResult, Direction, Error, GameId, Location, Player, PlayerId, Result, ShipId};
 
 pub mod blocking;
 
@@ -10,6 +10,7 @@ pub enum ClientResponse {
 }
 
 pub struct GameClient {
+    game_id: Option<GameId>,
     player: Option<Player>,
     player_id: Option<PlayerId>,
     other_players: Vec<PlayerId>,
@@ -18,15 +19,24 @@ pub struct GameClient {
 impl GameClient {
     pub fn new() -> Self {
         Self {
+            game_id: None,
             player: None,
             player_id: None,
             other_players: vec![],
         }
     }
 
+    pub fn create_game(&mut self) -> Request {
+        Request::CreateGame
+    }
+
+    pub fn join_game(&mut self, game_id: GameId) {
+        self.game_id = Some(game_id);
+    }
+
     pub fn add_player(&mut self, name: &str) -> Request {
         self.player = Some(Player::new(name));
-        Request::AddPlayer(name.into())
+        Request::AddPlayer(self.game_id.unwrap(), name.into())
     }
 
     pub fn player(&mut self) -> Result<&mut Player> {
@@ -69,7 +79,11 @@ impl GameClient {
                 self.player()?.place_ship(ship_id, location, direction)?;
                 Ok(ClientResponse::None)
             }
-            Response::Winner(player) => Ok(ClientResponse::Winner(player)),
+            Response::CreateGame(game_id) => {
+                self.join_game(game_id);
+                Ok(ClientResponse::None)
+            }
+            Response::Winner(player_id) => Ok(ClientResponse::Winner(player_id)),
         }
     }
 
@@ -96,10 +110,6 @@ impl GameClient {
         Request::WaitForTurn(self.player_id.unwrap())
     }
 
-    pub fn winner(&self) -> Request {
-        Request::Winner
-    }
-
     pub fn get_player(&self, player_id: PlayerId) -> Result<&Player> {
         if self.player_id == Some(player_id) && self.player.is_some() {
             Ok(self.player.as_ref().unwrap())
@@ -108,11 +118,19 @@ impl GameClient {
         }
     }
 
+    pub fn winner(&self) -> Request {
+        Request::Winner(self.game_id.unwrap())
+    }
+
     pub fn other_player_ids(&self) -> Vec<PlayerId> {
         self.other_players.clone()
     }
 
     pub fn player_id(&self) -> PlayerId {
         self.player_id.unwrap()
+    }
+
+    pub fn game_id(&self) -> GameId {
+        self.game_id.unwrap()
     }
 }
