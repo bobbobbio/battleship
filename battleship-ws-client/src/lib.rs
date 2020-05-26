@@ -1,7 +1,9 @@
 // copyright 2020 Remi Bernotavicius
 use battleship_game::client::{ClientResponse, GameClient};
-use battleship_game::protocol::Response;
-use battleship_game::{row_to_letter, BattleField, Cell, Direction, Location, Ship, ShipId};
+use battleship_game::protocol::{Request, Response};
+use battleship_game::{
+    row_to_letter, BattleField, Cell, Direction, GameId, Location, Ship, ShipId,
+};
 use serde::Deserialize as _;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -9,7 +11,7 @@ use std::io;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{ErrorEvent, MessageEvent, WebSocket};
+use web_sys::{ErrorEvent, MessageEvent, UrlSearchParams, WebSocket};
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
 // allocator.
@@ -40,6 +42,7 @@ fn request_animation_frame(f: &Closure<dyn FnMut()>) {
 enum GameState {
     Connecting,
     PlacingShip(ShipId, Direction, WebSocket),
+    WaitingForGameCreate(WebSocket),
     WaitingForPlayerAdd(WebSocket),
     WaitingForTurn(WebSocket),
     WaitingForAttackResult(WebSocket),
@@ -245,6 +248,9 @@ impl Game {
                 }
             }
             ClientResponse::None => match self.state.take() {
+                GameState::WaitingForGameCreate(socket) => {
+                    self.add_player(socket);
+                }
                 GameState::WaitingForPlayerAdd(socket) | GameState::PlacingShip(_, _, socket) => {
                     let player = self.client.player().unwrap();
                     self.fields = Some(GameFields {
@@ -273,6 +279,12 @@ impl Game {
         }
     }
 
+    fn add_player(&mut self, socket: WebSocket) {
+        let request = self.client.add_player("remi");
+        self.send_request(request, &socket);
+        self.state = GameState::WaitingForPlayerAdd(socket);
+    }
+
     fn try_to_place_ship(&mut self, socket: WebSocket) {
         // Choose an unplaced ship
         let ships = self.client.player().unwrap().ships();
@@ -286,11 +298,14 @@ impl Game {
         }
     }
 
-    fn wait_for_turn(&mut self, socket: WebSocket) {
-        let request = self.client.wait_for_turn();
+    fn send_request(&self, request: Request, socket: &WebSocket) {
         let message = serde_json::to_string(&request).unwrap();
         socket.send_with_str(&message).unwrap();
         console_log!("{:?}", request);
+    }
+
+    fn wait_for_turn(&mut self, socket: WebSocket) {
+        self.send_request(self.client.wait_for_turn(), &socket);
         self.state = GameState::WaitingForTurn(socket);
     }
 
@@ -365,15 +380,32 @@ impl Game {
         }
     }
 
+    fn create_game(&mut self, socket: WebSocket) {
+        let request = self.client.create_game();
+        self.send_request(request, &socket);
+        self.state = GameState::WaitingForGameCreate(socket);
+    }
+
+    fn url_game_id(&self) -> Option<GameId> {
+        let search = window().location().search().unwrap();
+        let params = UrlSearchParams::new_with_str(&search).unwrap();
+        if let Some(Ok(game_id)) = params.get("game_id").map(|g| g.parse()) {
+            Some(game_id)
+        } else {
+            None
+        }
+    }
+
     fn on_connect(&mut self, socket: &WebSocket) {
         console_log!("established connection to server");
+        let socket = socket.clone();
 
-        let request = self.client.add_player("remi");
-        let message = serde_json::to_string(&request).unwrap();
-        socket.send_with_str(&message).unwrap();
-        console_log!("{:?}", request);
-
-        self.state = GameState::WaitingForPlayerAdd(socket.clone());
+        if let Some(game_id) = self.url_game_id() {
+            self.client.join_game(game_id);
+            self.add_player(socket);
+        } else {
+            self.create_game(socket);
+        }
     }
 
     fn on_mouse_move(&mut self, x: u32, y: u32) {
@@ -389,10 +421,7 @@ impl Game {
                     let other_player_id = self.client.other_player_ids()[0];
 
                     let request = self.client.advance(player_id, other_player_id, location);
-
-                    let message = serde_json::to_string(&request).unwrap();
-                    socket.send_with_str(&message).unwrap();
-                    console_log!("{:?}", request);
+                    self.send_request(request, &socket);
 
                     self.state = GameState::WaitingForAttackResult(socket);
                 }
@@ -404,10 +433,7 @@ impl Game {
                     let request = self
                         .client
                         .place_ship(player_id, ship_id, location, direction);
-                    let message = serde_json::to_string(&request).unwrap();
-                    socket.send_with_str(&message).unwrap();
-                    console_log!("{:?}", request);
-
+                    self.send_request(request, &socket);
                     self.try_to_place_ship(socket);
                 }
             }
