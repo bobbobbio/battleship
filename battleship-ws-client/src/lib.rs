@@ -2,7 +2,7 @@
 use battleship_game::client::{ClientResponse, GameClient};
 use battleship_game::protocol::{Request, Response};
 use battleship_game::{
-    row_to_letter, BattleField, Cell, Direction, GameId, Location, Ship, ShipId,
+    row_to_letter, BattleField, Cell, Direction, GameId, Location, PlayerId, Ship, ShipId,
 };
 use serde::Deserialize as _;
 use std::cell::RefCell;
@@ -43,6 +43,7 @@ enum GameState {
     Connecting,
     PlacingShip(ShipId, Direction, WebSocket),
     WaitingForGameCreate(WebSocket),
+    WaitingForGameJoin(WebSocket),
     WaitingForPlayerAdd(WebSocket),
     WaitingForTurn(WebSocket),
     WaitingForAttackResult(WebSocket),
@@ -251,24 +252,11 @@ impl Game {
                 GameState::WaitingForGameCreate(socket) => {
                     self.add_player(socket);
                 }
-                GameState::WaitingForPlayerAdd(socket) | GameState::PlacingShip(_, _, socket) => {
-                    let player = self.client.player().unwrap();
-                    self.fields = Some(GameFields {
-                        own_field: RenderableField {
-                            x: 10.0,
-                            y: 55.0,
-                            width: player.own_field().width(),
-                            height: player.own_field().height(),
-                        },
-                        speculative_field: RenderableField {
-                            x: 550.0,
-                            y: 55.0,
-                            width: player.speculative_field().width(),
-                            height: player.speculative_field().height(),
-                        },
-                    });
-                    self.try_to_place_ship(socket)
+                GameState::WaitingForGameJoin(socket) | GameState::WaitingForPlayerAdd(socket) => {
+                    self.on_player_join();
+                    self.try_to_place_ship(socket);
                 }
+                GameState::PlacingShip(_, _, socket) => self.try_to_place_ship(socket),
                 GameState::WaitingForTurn(socket) => {
                     self.message("Your turn", MessageLevel::Info);
                     self.state = GameState::MyTurn(socket);
@@ -276,6 +264,35 @@ impl Game {
                 _ => (),
             },
             _ => (),
+        }
+    }
+
+    fn on_player_join(&mut self) {
+        let player = self.client.player().unwrap();
+        self.fields = Some(GameFields {
+            own_field: RenderableField {
+                x: 10.0,
+                y: 55.0,
+                width: player.own_field().width(),
+                height: player.own_field().height(),
+            },
+            speculative_field: RenderableField {
+                x: 550.0,
+                y: 55.0,
+                width: player.speculative_field().width(),
+                height: player.speculative_field().height(),
+            },
+        });
+
+        let old_href = window().location().href().unwrap();
+
+        if !old_href.contains("player=") {
+            let href = format!("{}?player={}", old_href, self.client.player_id());
+            window()
+                .history()
+                .unwrap()
+                .push_state_with_url(&JsValue::from_str(""), "", Some(&href))
+                .unwrap();
         }
     }
 
@@ -380,17 +397,28 @@ impl Game {
         }
     }
 
+    fn join_game(&mut self, game_id: GameId, socket: WebSocket) {
+        if let Some(player_id) = self.url_param("player") {
+            let request = self.client.rejoin_game(player_id);
+            self.send_request(request, &socket);
+            self.state = GameState::WaitingForGameJoin(socket);
+        } else {
+            self.client.join_game(game_id);
+            self.add_player(socket);
+        }
+    }
+
     fn create_game(&mut self, socket: WebSocket) {
         let request = self.client.create_game();
         self.send_request(request, &socket);
         self.state = GameState::WaitingForGameCreate(socket);
     }
 
-    fn url_game_id(&self) -> Option<GameId> {
+    fn url_param<R: std::str::FromStr>(&self, param: &str) -> Option<R> {
         let search = window().location().search().unwrap();
         let params = UrlSearchParams::new_with_str(&search).unwrap();
-        if let Some(Ok(game_id)) = params.get("game_id").map(|g| g.parse()) {
-            Some(game_id)
+        if let Some(Ok(v)) = params.get(param).map(|g| g.parse()) {
+            Some(v)
         } else {
             None
         }
@@ -400,9 +428,10 @@ impl Game {
         console_log!("established connection to server");
         let socket = socket.clone();
 
-        if let Some(game_id) = self.url_game_id() {
-            self.client.join_game(game_id);
-            self.add_player(socket);
+        if let Some(game_id) = self.url_param("game") {
+            self.join_game(game_id, socket);
+        } else if let Some(player_id) = self.url_param::<PlayerId>("player") {
+            self.join_game(player_id.game_id(), socket);
         } else {
             self.create_game(socket);
         }
@@ -424,6 +453,8 @@ impl Game {
                     self.send_request(request, &socket);
 
                     self.state = GameState::WaitingForAttackResult(socket);
+                } else {
+                    self.state = GameState::MyTurn(socket);
                 }
             }
             GameState::PlacingShip(ship_id, direction, socket) => {
@@ -435,6 +466,8 @@ impl Game {
                         .place_ship(player_id, ship_id, location, direction);
                     self.send_request(request, &socket);
                     self.try_to_place_ship(socket);
+                } else {
+                    self.state = GameState::PlacingShip(ship_id, direction, socket);
                 }
             }
             s => {
@@ -446,7 +479,7 @@ impl Game {
 
 fn connect_websocket(game: Rc<RefCell<Game>>) -> Result<(), JsValue> {
     // connect to the server
-    let ws = WebSocket::new("ws://10.11.12.38:9090")?;
+    let ws = WebSocket::new("ws://127.0.0.1:9090")?;
     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
     // when we get a message, forward it to the game

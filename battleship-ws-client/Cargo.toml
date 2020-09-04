@@ -51,6 +51,7 @@ features = [
   'CanvasRenderingContext2d',
   'Document',
   'Element',
+  'History',
   'HtmlCanvasElement',
   'Location',
   'MouseEvent',

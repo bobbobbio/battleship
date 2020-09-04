@@ -1,7 +1,8 @@
 // copyright 2020 Remi Bernotavicius
 use super::protocol::{Request, Response};
 use super::{
-    AttackResult, Direction, Error, Game, GameId, Location, Play as _, PlayerId, Result, ShipId,
+    AttackResult, Direction, Error, Game, GameId, Location, Play as _, Player, PlayerId, Result,
+    ShipId,
 };
 use log::info;
 use std::collections::HashMap;
@@ -82,6 +83,13 @@ impl GameServer {
         }
     }
 
+    fn join_game(&mut self, player_id: PlayerId) -> Result<Player> {
+        Ok(self
+            .game(player_id.game_id())?
+            .get_player(player_id)?
+            .clone())
+    }
+
     fn check_waiters(&mut self) {
         let game_ids: Vec<_> = self.games.keys().cloned().collect();
         for game_id in game_ids {
@@ -128,6 +136,10 @@ impl GameServer {
             }
             Request::Winner(game_id) => self.winner(game_id).map(Response::Winner).into(),
             Request::CreateGame => Response::CreateGame(self.create_game()),
+            Request::JoinGame(player_id) => self
+                .join_game(player_id)
+                .map(|p| Response::JoinedGame(player_id, p))
+                .into(),
         };
         info!("{:#?}", &response);
         sender.send(response).unwrap();

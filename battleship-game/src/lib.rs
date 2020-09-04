@@ -39,6 +39,27 @@ impl fmt::Display for GameId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord, Hash)]
 pub struct PlayerId(GameId, usize);
 
+impl str::FromStr for PlayerId {
+    type Err = String;
+    fn from_str(s: &str) -> result::Result<Self, Self::Err> {
+        let mut s = s.split(".");
+        match (s.next(), s.next()) {
+            (Some(s1), Some(s2)) => {
+                let game_id = s1.parse::<GameId>().map_err(|e| e.to_string())?;
+                let id = s2.parse::<usize>().map_err(|e| e.to_string())?;
+                Ok(Self(game_id, id))
+            }
+            _ => Err("expected <number>.<number>".into()),
+        }
+    }
+}
+
+impl fmt::Display for PlayerId {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        write!(fmt, "{}.{}", self.0, self.1)
+    }
+}
+
 impl PlayerId {
     pub fn game_id(&self) -> GameId {
         self.0
@@ -255,6 +276,7 @@ impl Play for Game {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Player {
     own_field: BattleField,
     speculative_field: BattleField,
@@ -427,7 +449,7 @@ impl Player {
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct ShipId(usize);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 enum ShipState {
     Healthy,
     Hit(usize),
@@ -461,7 +483,7 @@ impl fmt::Display for AttackResult {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Ship {
     kind: ShipKind,
     state: ShipState,
@@ -547,7 +569,7 @@ impl Ship {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 enum ShipKind {
     Carrier,
     Battleship,
@@ -574,7 +596,7 @@ impl ShipKind {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Cell {
     Empty,
     Miss,
@@ -745,6 +767,7 @@ fn test_direction_from_str() {
     );
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BattleField {
     width: usize,
     height: usize,

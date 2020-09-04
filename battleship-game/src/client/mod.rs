@@ -34,6 +34,11 @@ impl GameClient {
         self.game_id = Some(game_id);
     }
 
+    pub fn rejoin_game(&mut self, player_id: PlayerId) -> Request {
+        self.game_id = Some(player_id.game_id());
+        Request::JoinGame(player_id)
+    }
+
     pub fn add_player(&mut self, name: &str) -> Request {
         self.player = Some(Player::new(name));
         Request::AddPlayer(self.game_id.unwrap(), name.into())
@@ -84,6 +89,11 @@ impl GameClient {
                 Ok(ClientResponse::None)
             }
             Response::Winner(player_id) => Ok(ClientResponse::Winner(player_id)),
+            Response::JoinedGame(player_id, player) => {
+                self.player_id = Some(player_id);
+                self.player = Some(player);
+                Ok(ClientResponse::None)
+            }
         }
     }
 
