@@ -603,6 +603,7 @@ fn url_host_name() -> String {
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
+    console_log!("Battleship Client Starting");
 
     let canvas = canvas();
     let canvas_width = 1224;
