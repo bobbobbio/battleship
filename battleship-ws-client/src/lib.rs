@@ -477,9 +477,9 @@ impl Game {
     }
 }
 
-fn connect_websocket(game: Rc<RefCell<Game>>) -> Result<(), JsValue> {
+fn connect_websocket(game: Rc<RefCell<Game>>, host: &str) -> Result<(), JsValue> {
     // connect to the server
-    let ws = WebSocket::new("ws://127.0.0.1:9090")?;
+    let ws = WebSocket::new(&format!("ws://{}:9090", host))?;
     ws.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
     // when we get a message, forward it to the game
@@ -588,6 +588,18 @@ fn set_up_input(game: Rc<RefCell<Game>>) {
     closure.forget();
 }
 
+/// Get the host, minus the port
+fn url_host_name() -> String {
+    window()
+        .location()
+        .host()
+        .unwrap()
+        .split(":")
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
@@ -605,7 +617,7 @@ pub fn start() -> Result<(), JsValue> {
         canvas_height,
     )));
 
-    connect_websocket(game.clone())?;
+    connect_websocket(game.clone(), &url_host_name())?;
     set_up_rendering(game.clone());
     set_up_input(game.clone());
 
