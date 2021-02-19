@@ -293,6 +293,19 @@ impl Game {
                 .unwrap()
                 .push_state_with_url(&JsValue::from_str(""), "", Some(&href))
                 .unwrap();
+
+            let document = window().document().unwrap();
+
+            let link = document
+                .create_element("a")
+                .unwrap()
+                .dyn_into::<web_sys::HtmlAnchorElement>()
+                .map_err(|_| ())
+                .unwrap();
+            link.set_href(&format!("{}?game={}", old_href, self.client.game_id()));
+            link.set_inner_html("Join game with this link");
+            let body = document.body().unwrap();
+            body.append_child(&link).unwrap();
         }
     }
 
